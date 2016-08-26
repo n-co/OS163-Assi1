@@ -7,6 +7,11 @@
 #include "x86.h"
 #include "elf.h"
 
+
+// 1.3
+extern void* inject_exit_start;
+extern void* inject_exit_end;
+
 int
 exec(char *path, char **argv)
 {
@@ -61,6 +66,13 @@ exec(char *path, char **argv)
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
   sp = sz;
 
+  // 1.3
+  int length = (int)(&inject_exit_end) - (int)(&inject_exit_start);
+  sp = (sp - length);
+  int ret_address = sp;
+  if(copyout(pgdir, sp, &inject_exit_start, length) < 0)
+    goto bad;
+
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)
@@ -70,9 +82,10 @@ exec(char *path, char **argv)
       goto bad;
     ustack[3+argc] = sp;
   }
+  
   ustack[3+argc] = 0;
 
-  ustack[0] = 0xffffffff;  // fake return PC
+  ustack[0] = ret_address; //fake return PC
   ustack[1] = argc;
   ustack[2] = sp - (argc+1)*4;  // argv pointer
 

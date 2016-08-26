@@ -27,6 +27,9 @@ OBJS = \
 	uart.o\
 	vectors.o\
 	vm.o\
+	inject_exit.o\
+	sighandler.o\
+	
 
 # Cross-compiling (e.g., on Mac OS X)
 # TOOLPREFIX = i386-jos-elf
@@ -109,7 +112,7 @@ initcode: initcode.S
 	$(CC) $(CFLAGS) -nostdinc -I. -c initcode.S
 	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o initcode.out initcode.o
 	$(OBJCOPY) -S -O binary initcode.out initcode
-	$(OBJDUMP) -S initcode.o > initcode.asm
+	$(OBJDUMP) -S initcode.o > initcode.asm	
 
 kernel: $(OBJS) entry.o entryother initcode kernel.ld
 	$(LD) $(LDFLAGS) -T kernel.ld -o kernel entry.o $(OBJS) -b binary initcode entryother
@@ -147,6 +150,22 @@ _forktest: forktest.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _forktest forktest.o ulib.o usys.o
 	$(OBJDUMP) -S _forktest > forktest.asm
 
+
+
+_ftest: ftest.o $(ULIB)
+	# ftest has less library code linked in - needs to be small
+	# in order to be able to max out the proc table.
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _ftest ftest.o ulib.o usys.o
+	$(OBJDUMP) -S _ftest > ftest.asm
+
+_sanity: sanity.o $(ULIB)
+	# sanity has less library code linked in - needs to be small
+	# in order to be able to max out the proc table.
+	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _sanity sanity.o ulib.o usys.o
+	$(OBJDUMP) -S _sanity > sanity.asm
+
+
+
 mkfs: mkfs.c fs.h
 	gcc -Werror -Wall -o mkfs mkfs.c
 
@@ -169,20 +188,32 @@ UPROGS=\
 	_rm\
 	_sh\
 	_stressfs\
-	_usertests\
 	_wc\
 	_zombie\
+	_test\
+	_policy\
+	_ftest\
+	_sanity\
+# 	_usertests\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
 
 -include *.d
 
+
+inject_exit: inject_exit.S
+	$(CC) $(CFLAGS) -nostdinc -I. -c inject_exit.S
+	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o inject_exit.out inject_exit.o
+	$(OBJCOPY) -S -O binary inject_exit.out inject_exit
+	$(OBJDUMP) -S inject_exit.o > inject_exit.asm
+
 clean: 
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*.o *.d *.asm *.sym vectors.S bootblock entryother \
 	initcode initcode.out kernel xv6.img fs.img kernelmemfs mkfs \
 	.gdbinit \
+	test.o test.bin\
 	$(UPROGS)
 
 # make a printout
@@ -238,10 +269,11 @@ qemu-nox-gdb: fs.img xv6.img .gdbinit
 # rename it to rev0 or rev1 or so on and then
 # check in that version.
 
+# usertests.c
 EXTRA=\
-	mkfs.c ulib.c user.h cat.c echo.c forktest.c grep.c kill.c\
-	ln.c ls.c mkdir.c rm.c stressfs.c usertests.c wc.c zombie.c\
-	printf.c umalloc.c\
+	mkfs.c ulib.c user.h cat.c echo.c forktest.c ftest.c sanity.c grep.c kill.c\
+	ln.c ls.c mkdir.c rm.c stressfs.c test.c wc.c zombie.c\
+	printf.c umalloc.c policy.c\
 	README dot-bochsrc *.pl toc.* runoff runoff1 runoff.list\
 	.gdbinit.tmpl gdbutil\
 

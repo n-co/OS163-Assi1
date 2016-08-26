@@ -1,5 +1,6 @@
 // Segments in proc->gdt.
 #define NSEGS     7
+#define NUMSIG    32
 
 // Per-CPU state
 struct cpu {
@@ -66,6 +67,16 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int exit_status;
+  int ntickets;
+  int priority;
+  int ctime;                  // process creation time
+  int ttime;                  // process termination time
+  int stime;                  // the time the process spent ont the SLEEPING state
+  int retime;                 // the time the process spent ont the READY state
+  int rutime;                 // the time the process spent ont the RUNNING state
+  uint pending;
+  sighandler_t sig_table[NUMSIG];   //sighandler_t is a pointer to a function that recieve an integr and return void
 };
 
 // Process memory is laid out contiguously, low addresses first:

@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "perf.h"
 
 struct {
   struct spinlock lock;
@@ -13,13 +14,22 @@ struct {
 } ptable;
 
 static struct proc *initproc;
+static int policy = POL_UNIFORM;
+static unsigned long next_rand = 1;
+static int total_tickets;
+
+int pol_uniform();
+int pol_priority();
+int pol_dynamic();
+void update_total_tickets(struct proc *p, enum procstate,enum procstate);
 
 int nextpid = 1;
 extern void forkret(void);
 extern void trapret(void);
+extern int get_tick(void);
+extern void defSigHandler(int);
 
 static void wakeup1(void *chan);
-
 void
 pinit(void)
 {
@@ -69,7 +79,18 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
+  p->priority = 10; // 2.1
+  p->ctime = get_tick();
+  p->stime = 0;
+  p->retime = 0;
+  p->rutime = 0;
 
+  //3.1
+  p->pending = 0;
+  int i;
+  for(i=0; i<NUMSIG; i++)
+    p->sig_table[i] = defSigHandler;
+  
   return p;
 }
 
@@ -160,6 +181,7 @@ fork(void)
 
   // lock to force the compiler to emit the np->state write last.
   acquire(&ptable.lock);
+  update_total_tickets(np, np->state, RUNNABLE);
   np->state = RUNNABLE;
   release(&ptable.lock);
   
@@ -170,7 +192,7 @@ fork(void)
 // An exited process remains in the zombie state
 // until its parent calls wait() to find out it exited.
 void
-exit(void)
+exit(int status)
 {
   struct proc *p;
   int fd;
@@ -206,7 +228,10 @@ exit(void)
   }
 
   // Jump into the scheduler, never to return.
+  update_total_tickets(proc, proc->state, ZOMBIE);
+  proc-> ttime = get_tick();
   proc->state = ZOMBIE;
+  proc->exit_status = status; //@
   sched();
   panic("zombie exit");
 }
@@ -214,7 +239,7 @@ exit(void)
 // Wait for a child process to exit and return its pid.
 // Return -1 if this process has no children.
 int
-wait(void)
+wait(int *status)
 {
   struct proc *p;
   int havekids, pid;
@@ -239,6 +264,8 @@ wait(void)
         p->name[0] = 0;
         p->killed = 0;
         release(&ptable.lock);
+        if(status != 0)             //@ change to NULL ?
+          *status = p->exit_status; //@
         return pid;
       }
     }
@@ -254,6 +281,30 @@ wait(void)
   }
 }
 
+
+//random - 2.1
+int rand(int max){
+  if(max<=0)
+    return 0;
+  int a = 1103515245;
+  int b = 12345;
+  next_rand = next_rand*a+b;
+  return ((unsigned int) (next_rand/65536) % 32768) % max;
+}
+
+struct proc* get_proc_by_ticket(int ticket){
+  struct proc *p = 0;
+  int tCounter = 0;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state==RUNNABLE && tCounter+p->ntickets > ticket)
+      return p;
+    else
+      tCounter += p->ntickets;
+  }
+  return p;
+}
+
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -266,32 +317,41 @@ void
 scheduler(void)
 {
   struct proc *p;
+  policy = POL_UNIFORM;
+  total_tickets = pol_uniform();
+  int ticket = rand(total_tickets);
 
   for(;;){
     // Enable interrupts on this processor.
     sti();
-
-    // Loop over process table looking for process to run.
+  
     acquire(&ptable.lock);
+
+    ticket = rand(total_tickets);
+    int tCounter = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
+      if(p->state!=RUNNABLE)
         continue;
-
+      if(tCounter+p->ntickets > ticket){
       // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&cpu->scheduler, proc->context);
-      switchkvm();
+        // to release ptable.lock and then reacquire it
+        // before jumping back to us.
+        proc = p;
+        switchuvm(p);
+        update_total_tickets(p, p->state, RUNNING);
+        p->state = RUNNING;
+        swtch(&cpu->scheduler, proc->context);
+        switchkvm();
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      proc = 0;
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        proc = 0;
+        break;
+      }
+      else
+        tCounter += p->ntickets;
     }
     release(&ptable.lock);
-
   }
 }
 
@@ -320,6 +380,7 @@ void
 yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
+  update_total_tickets(proc, proc->state, RUNNABLE);
   proc->state = RUNNABLE;
   sched();
   release(&ptable.lock);
@@ -370,6 +431,7 @@ sleep(void *chan, struct spinlock *lk)
 
   // Go to sleep.
   proc->chan = chan;
+  update_total_tickets(proc, proc->state, SLEEPING);
   proc->state = SLEEPING;
   sched();
 
@@ -392,8 +454,10 @@ wakeup1(void *chan)
   struct proc *p;
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
-    if(p->state == SLEEPING && p->chan == chan)
+    if(p->state == SLEEPING && p->chan == chan){
+      update_total_tickets(p, SLEEPING,RUNNABLE);
       p->state = RUNNABLE;
+    }
 }
 
 // Wake up all processes sleeping on chan.
@@ -418,8 +482,10 @@ kill(int pid)
     if(p->pid == pid){
       p->killed = 1;
       // Wake process from sleep if necessary.
-      if(p->state == SLEEPING)
+      if(p->state == SLEEPING){
+        update_total_tickets(p, SLEEPING,RUNNABLE);
         p->state = RUNNABLE;
+      }
       release(&ptable.lock);
       return 0;
     }
@@ -463,4 +529,174 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+//2.1
+int
+ pol_uniform(){
+  int total = 0;
+  struct proc *p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    p->ntickets = 1;
+      if(p->state == RUNNABLE)
+        total += p->ntickets;
+  }
+  return total;
+ }
+
+ int
+ pol_priority(){
+  int total = 0;
+  struct proc *p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    p->ntickets = p->priority;
+      if(p->state == RUNNABLE)
+        total += p->ntickets;
+  }
+  return total; }
+
+ int
+ pol_dynamic(){
+  int total = 0;
+  struct proc *p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    p->ntickets = 20;
+      if(p->state == RUNNABLE)
+        total += p->ntickets;
+  }
+  return total;
+ }
+
+void
+update_total_tickets(struct proc *p, enum procstate old_state,enum procstate new_state){
+  if(old_state != new_state){
+    
+    // change ntickets according to policy
+    if(policy == POL_DYNAMIC){
+      if(old_state == RUNNING && new_state == SLEEPING){
+        p->ntickets+=10;
+        if(p->ntickets>100)
+          p->ntickets=100;
+        //cprintf("dynamic ntickets sleeping: %d\n",p->ntickets);
+      }
+      if(old_state == RUNNING && new_state == RUNNABLE){
+        if(p->ntickets>1)
+          p->ntickets--;
+        //cprintf("dynamic ntickets becomes runnable: %d\n",p->ntickets);
+      }
+    }
+
+    // apply ntickets to a new process according to policy
+    if(old_state == EMBRYO){
+      switch(policy){
+      case POL_UNIFORM:   p->ntickets = 1;
+                          break;
+      case POL_PRIORITY:  p->priority = 10;
+                          p->ntickets = p->priority;
+                          break;
+      case POL_DYNAMIC:   p->ntickets = 20;
+                          break;
+      }
+
+      //cprintf("embryo ntickets: %d\n",p->ntickets);
+    }
+
+    // change total_tickets (for every kind of policy)
+    if(new_state == RUNNABLE)
+      total_tickets += p->ntickets;
+    if(old_state == RUNNABLE)
+      total_tickets -= p->ntickets;
+  }
+}
+
+int
+schedp(int sched_policy_id){
+  policy = sched_policy_id;
+  switch(policy){
+    case POL_UNIFORM:  return pol_uniform();
+    case POL_PRIORITY: return pol_priority();
+    case POL_DYNAMIC:  return pol_dynamic();
+    default: return 0;
+  } 
+}
+
+void
+priority(int pr){
+   proc->priority = pr;
+}
+//2.2
+// Wait for a child process to exit and return its pid.
+// Return -1 if this process has no children.
+int
+wait_stat(int *status, struct perf *perf){
+  struct proc *p;
+  int havekids, pid;
+
+  acquire(&ptable.lock);
+  for(;;){
+    // Scan through table looking for zombie children.
+    havekids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->parent != proc)
+        continue;
+      havekids = 1;
+      if(p->state == ZOMBIE){
+        // Found one.
+        pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        freevm(p->pgdir);
+        p->state = UNUSED;
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+
+        perf->ctime  = p->ctime; 
+        perf->ttime  = p->ttime;
+        perf->stime  = p->stime; 
+        perf->retime = p->retime;
+        perf->rutime = p->rutime;
+        release(&ptable.lock);
+        if(status != 0)             //@ change to NULL ?
+          *status = p->exit_status; //@
+        return pid;
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || proc->killed){
+      release(&ptable.lock);
+      return -1;
+    }
+
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(proc, &ptable.lock);  //DOC: wait-sleep
+  }
+    return 0;
+}
+
+void
+inc_ticks(void){
+  acquire(&ptable.lock);
+  struct proc* p;
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state == SLEEPING)
+      p->stime++;
+    else if(p->state == RUNNING)
+      p->rutime++;
+    else if(p->state == RUNNABLE)
+      p->retime++;         
+  }
+  release(&ptable.lock);
+}
+
+//3.2
+sighandler_t
+signal(int signum, sighandler_t handler){
+  if(signum<0 || NUMSIG<=signum)
+    return (sighandler_t)-1;
+  sighandler_t ret = proc->sig_table[signum];
+  proc->sig_table[signum] = handler;
+  return ret;
 }
