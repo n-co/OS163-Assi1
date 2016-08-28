@@ -124,6 +124,7 @@ void 			priority(int); //2.1
 int 			wait_stat(int*, struct perf*); //2.2
 sighandler_t	signal(int,sighandler_t);	//3.2
 int 			sigsend(int,int);	//3.3
+int 			sigreturn(void);	//3.4
 
 // swtch.S
 void            swtch(struct context**, struct context*);

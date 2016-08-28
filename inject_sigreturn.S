@@ -1,3 +1,6 @@
+#include "syscall.h"
+#include "traps.h"
+
 .text
 	.global inject_sigreturn_start
 	.global inject_sigreturn_end

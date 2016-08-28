@@ -27,7 +27,8 @@ int uptime(void);
 int schedp(int);
 void priority(int);
 int wait_stat(int*, struct perf*);
-sighandler_t signal(int,sighandler_t); 
+sighandler_t signal(int,sighandler_t);
+int sigsend(int,int);  
 
 // ulib.c
 int stat(char*, struct stat*);

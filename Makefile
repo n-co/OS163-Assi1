@@ -28,6 +28,7 @@ OBJS = \
 	vectors.o\
 	vm.o\
 	inject_exit.o\
+	inject_sigreturn.o\
 	sighandler.o\
 	
 
@@ -150,22 +151,6 @@ _forktest: forktest.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _forktest forktest.o ulib.o usys.o
 	$(OBJDUMP) -S _forktest > forktest.asm
 
-
-
-_ftest: ftest.o $(ULIB)
-	# ftest has less library code linked in - needs to be small
-	# in order to be able to max out the proc table.
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _ftest ftest.o ulib.o usys.o
-	$(OBJDUMP) -S _ftest > ftest.asm
-
-_sanity: sanity.o $(ULIB)
-	# sanity has less library code linked in - needs to be small
-	# in order to be able to max out the proc table.
-	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o _sanity sanity.o ulib.o usys.o
-	$(OBJDUMP) -S _sanity > sanity.asm
-
-
-
 mkfs: mkfs.c fs.h
 	gcc -Werror -Wall -o mkfs mkfs.c
 
@@ -194,6 +179,7 @@ UPROGS=\
 	_policy\
 	_ftest\
 	_sanity\
+	_sigtest\
 # 	_usertests\
 
 fs.img: mkfs README $(UPROGS)
@@ -207,6 +193,12 @@ inject_exit: inject_exit.S
 	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o inject_exit.out inject_exit.o
 	$(OBJCOPY) -S -O binary inject_exit.out inject_exit
 	$(OBJDUMP) -S inject_exit.o > inject_exit.asm
+
+inject_sigreturn: inject_sigreturn.S
+	$(CC) $(CFLAGS) -nostdinc -I. -c inject_sigreturn.S
+	$(LD) $(LDFLAGS) -N -e start -Ttext 0 -o inject_sigreturn.out inject_sigreturn.o
+	$(OBJCOPY) -S -O binary inject_sigreturn.out inject_sigreturn
+	$(OBJDUMP) -S inject_sigreturn.o > inject_sigreturn.asm
 
 clean: 
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
@@ -271,7 +263,7 @@ qemu-nox-gdb: fs.img xv6.img .gdbinit
 
 # usertests.c
 EXTRA=\
-	mkfs.c ulib.c user.h cat.c echo.c forktest.c ftest.c sanity.c grep.c kill.c\
+	mkfs.c ulib.c user.h cat.c echo.c forktest.c ftest.c sanity.c grep.c kill.c sigtest.c\
 	ln.c ls.c mkdir.c rm.c stressfs.c test.c wc.c zombie.c\
 	printf.c umalloc.c policy.c\
 	README dot-bochsrc *.pl toc.* runoff runoff1 runoff.list\

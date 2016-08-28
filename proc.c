@@ -91,6 +91,8 @@ found:
   int i;
   for(i=0; i<NUMSIG; i++)
     p->sig_table[i] = defSigHandler;
+
+  p->tfbackup = 0;
   
   return p;
 }
@@ -711,7 +713,6 @@ int
 sigsend(int pid, int signum){
 	if(signum<0 || NUMSIG<=signum)
 		return -1;
-  
 	acquire(&ptable.lock);
 	struct proc* p;
 	int found = 0;
@@ -727,4 +728,18 @@ sigsend(int pid, int signum){
 	if(found)
 		return 0;
 	return -1;
+}
+
+//3.4
+int
+sigreturn(void){
+	acquire(&ptable.lock);
+	if(proc->tfbackup==0){
+		release(&ptable.lock);
+		return -1;
+	}
+	// restore trapframe from backup
+	memmove(proc->tf,&(proc->tfbackup),sizeof(struct trapframe));
+	release(&ptable.lock);
+	return 0;
 }

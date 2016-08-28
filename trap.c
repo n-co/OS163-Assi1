@@ -16,7 +16,9 @@ struct spinlock tickslock;
 uint ticks;
 
 extern void inc_ticks(void);
-
+//3.4
+extern void* inject_sigreturn_start;
+extern void* inject_sigreturn_end;
 void
 tvinit(void)
 {
@@ -118,43 +120,29 @@ int get_tick(void){
   return (int)ticks; 
 }
 
-void apply_sig_handler(struct trapframe *tf){
-  //backup the trapframe here
-  proc->tfbackup->edi = tf->edi;
-  proc->tfbackup->esi = tf->esi;
-  proc->tfbackup->ebp = tf->ebp;
-  proc->tfbackup->oesp = tf->oesp;     
-  proc->tfbackup->ebx = tf->ebx;
-  proc->tfbackup->edx = tf->edx;
-  proc->tfbackup->ecx = tf->ecx;
-  proc->tfbackup->eax = tf->eax;
-  proc->tfbackup->gs = tf->gs;
-  proc->tfbackup->padding1 = tf->padding1;
-  proc->tfbackup->fs = tf->fs;
-  proc->tfbackup->padding2 = tf->padding2;
-  proc->tfbackup->es = tf->es;
-  proc->tfbackup->padding3 = tf->padding3;
-  proc->tfbackup->ds = tf->ds;
-  proc->tfbackup->padding4 = tf->padding4;
-  proc->tfbackup->trapno = tf->trapno;
-  proc->tfbackup->err = tf->err;
-  proc->tfbackup->eip = tf->eip;
-  proc->tfbackup->cs = tf->cs;
-  proc->tfbackup->padding5 = tf->padding5;
-  proc->tfbackup->eflags = tf->eflags;
-  proc->tfbackup->esp = tf->esp;
-  proc->tfbackup->ss = tf->ss;
-  proc->tfbackup->padding6 = tf->padding6;
+void apply_sig_handler(struct trapframe *tf){    
+	if(proc == 0)  //scheduler
+		return;
+	if(proc->pending == 0) // no signals
+		return;
+	int i;
+  	for(i=0; i<NUMSIG; i++){
+    	if(IS_SIG_ON(proc,i)){
+    		//backup the trapframe
+			memmove(proc->tfbackup,&tf,sizeof(struct trapframe));
+			TURN_OFF(proc,i);
+	    	tf->eip = (uint)(proc->sig_table[i]);
+	  		int length = (int)(&inject_sigreturn_end) - (int)(&inject_sigreturn_start);
+	  		tf->esp = (tf->esp - length);
+	  		uint ret_address = tf->esp;
+	  		copyout(proc->pgdir, tf->esp, &inject_sigreturn_start, length);      	
 
+	      	tf->esp -= 4;
+	      	*((uint*)tf->esp) = i;
+	      	tf->esp -= 4;
+	      	*((uint*)tf->esp) = ret_address;
 
-  int i;
-  for(i=0; i<NUMSIG; i++){
-    if(IS_SIG_ON(proc,i)){
-      // cancel signal - off
-      //ip=func of sig handler
-      // change end of function to sigreturn
-      (proc->sig_table[i])();
-      break;
+	      	break;
     }
   }
 }

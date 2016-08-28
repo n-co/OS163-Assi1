@@ -124,7 +124,7 @@ sys_wait_stat(void){
   return wait_stat((int*)stat, (struct perf*)perf);  
 }
 
-//3.1
+//3.2
 int
 sys_signal(void){
   int signum;
@@ -134,12 +134,18 @@ sys_signal(void){
   return (int)signal(signum, (sighandler_t)handler);
 }
 
-//3.1
+//3.3
 int
 sys_sigsend(void){
   int pid;
   int signum;
-  if(argint(0, &signum) < 0 || argint(1, &pid) < 0)
+  if(argint(0, &pid) < 0 || argint(1, &signum) < 0)
     return -1;
   return sigsend(pid,signum);
+}
+
+//3.4
+int
+sys_sigreturn(void){
+  return sigreturn();
 }
