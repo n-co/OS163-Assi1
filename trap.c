@@ -7,6 +7,7 @@
 #include "x86.h"
 #include "traps.h"
 #include "spinlock.h"
+#include "signal.h"
 
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
@@ -115,4 +116,45 @@ trap(struct trapframe *tf)
 
 int get_tick(void){
   return (int)ticks; 
+}
+
+void apply_sig_handler(struct trapframe *tf){
+  //backup the trapframe here
+  proc->tfbackup->edi = tf->edi;
+  proc->tfbackup->esi = tf->esi;
+  proc->tfbackup->ebp = tf->ebp;
+  proc->tfbackup->oesp = tf->oesp;     
+  proc->tfbackup->ebx = tf->ebx;
+  proc->tfbackup->edx = tf->edx;
+  proc->tfbackup->ecx = tf->ecx;
+  proc->tfbackup->eax = tf->eax;
+  proc->tfbackup->gs = tf->gs;
+  proc->tfbackup->padding1 = tf->padding1;
+  proc->tfbackup->fs = tf->fs;
+  proc->tfbackup->padding2 = tf->padding2;
+  proc->tfbackup->es = tf->es;
+  proc->tfbackup->padding3 = tf->padding3;
+  proc->tfbackup->ds = tf->ds;
+  proc->tfbackup->padding4 = tf->padding4;
+  proc->tfbackup->trapno = tf->trapno;
+  proc->tfbackup->err = tf->err;
+  proc->tfbackup->eip = tf->eip;
+  proc->tfbackup->cs = tf->cs;
+  proc->tfbackup->padding5 = tf->padding5;
+  proc->tfbackup->eflags = tf->eflags;
+  proc->tfbackup->esp = tf->esp;
+  proc->tfbackup->ss = tf->ss;
+  proc->tfbackup->padding6 = tf->padding6;
+
+
+  int i;
+  for(i=0; i<NUMSIG; i++){
+    if(IS_SIG_ON(proc,i)){
+      // cancel signal - off
+      //ip=func of sig handler
+      // change end of function to sigreturn
+      (proc->sig_table[i])();
+      break;
+    }
+  }
 }

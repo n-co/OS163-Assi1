@@ -88,22 +88,40 @@ printf(int fd, char *fmt, ...)
 
 
 void cpuonly(void){
-  int start = uptime();
-  while(uptime()<start+30);
+  int tick = uptime();
+  int prev = tick;
+  int counter = 0;
+  while(counter<30){
+    tick = uptime();
+    if(tick != prev){
+      counter++;
+      prev = tick;
+    }
+  }
   exit(0);
 }
+
 void blockonly(void){
   int start = uptime();
   while(uptime()<start+30)
     sleep(1);
   exit(0);
 }
+
 void mixed(void){
   int i;
   for(i=0; i<5; i++){
-    int start = uptime();
-    while(uptime()<start+5);
-    sleep(1);
+    int tick = uptime();
+    int prev = tick;
+    int counter = 0;
+    while(counter<5){
+      tick = uptime();
+      if(tick != prev){
+        counter++;
+        prev = tick;
+        sleep(1);
+      }
+    }
   }
   exit(0);
 }

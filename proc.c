@@ -7,6 +7,7 @@
 #include "proc.h"
 #include "spinlock.h"
 #include "perf.h"
+#include "signal.h"
 
 struct {
   struct spinlock lock;
@@ -17,10 +18,6 @@ static struct proc *initproc;
 static int policy = POL_UNIFORM;
 static unsigned long next_rand = 1;
 static int total_tickets;
-
-#define IS_SIG_ON(p,signum)	(p->pending & (1<<signum))
-#define TURN_ON(p,signum)	p->pending |= (1<<signum)
-#define TURN_OFF(p,signum)	p->pending &= (~(1<<signum))
 
 int pol_uniform();
 int pol_priority();
@@ -344,14 +341,6 @@ scheduler(void)
         // to release ptable.lock and then reacquire it
         // before jumping back to us.
         proc = p;
-
-        int i;
-        for(i=0; i<NUMSIG; i++){
-        	if(IS_SIG_ON(proc,i)){
-        		//backup state
-        	}
-        }
-
         switchuvm(p);
         update_total_tickets(p, p->state, RUNNING);
         p->state = RUNNING;
