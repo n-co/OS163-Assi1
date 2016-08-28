@@ -18,6 +18,10 @@ static int policy = POL_UNIFORM;
 static unsigned long next_rand = 1;
 static int total_tickets;
 
+#define IS_SIG_ON(p,signum)	(p->pending & (1<<signum))
+#define TURN_ON(p,signum)	p->pending |= (1<<signum)
+#define TURN_OFF(p,signum)	p->pending &= (~(1<<signum))
+
 int pol_uniform();
 int pol_priority();
 int pol_dynamic();
@@ -166,6 +170,9 @@ fork(void)
   np->sz = proc->sz;
   np->parent = proc;
   *np->tf = *proc->tf;
+
+  for(i=0; i<NUMSIG; i++)		// copy sig_table from parent to child
+  	np->sig_table[i] = proc->sig_table[i];
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -337,6 +344,14 @@ scheduler(void)
         // to release ptable.lock and then reacquire it
         // before jumping back to us.
         proc = p;
+
+        int i;
+        for(i=0; i<NUMSIG; i++){
+        	if(IS_SIG_ON(proc,i)){
+        		//backup state
+        	}
+        }
+
         switchuvm(p);
         update_total_tickets(p, p->state, RUNNING);
         p->state = RUNNING;
@@ -699,4 +714,28 @@ signal(int signum, sighandler_t handler){
   sighandler_t ret = proc->sig_table[signum];
   proc->sig_table[signum] = handler;
   return ret;
+}
+
+//3.3
+
+int
+sigsend(int pid, int signum){
+	if(signum<0 || NUMSIG<=signum)
+		return -1;
+  
+	acquire(&ptable.lock);
+	struct proc* p;
+	int found = 0;
+	for(p = ptable.proc; !found && p < &ptable.proc[NPROC]; p++){
+		if (pid == p->pid){
+			found = 1;
+			if(p->state == UNUSED || p->state == ZOMBIE || p->state == EMBRYO)
+				return -1;
+			TURN_ON(p,signum);
+       }     
+	}
+	release(&ptable.lock);
+	if(found)
+		return 0;
+	return -1;
 }

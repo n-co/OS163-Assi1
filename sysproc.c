@@ -133,3 +133,13 @@ sys_signal(void){
     return -1;
   return (int)signal(signum, (sighandler_t)handler);
 }
+
+//3.1
+int
+sys_sigsend(void){
+  int pid;
+  int signum;
+  if(argint(0, &signum) < 0 || argint(1, &pid) < 0)
+    return -1;
+  return sigsend(pid,signum);
+}
