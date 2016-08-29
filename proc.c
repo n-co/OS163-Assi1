@@ -708,10 +708,12 @@ signal(int signum, sighandler_t handler){
 }
 
 //3.3
-
 int
 sigsend(int pid, int signum){
-	if(signum<0 || NUMSIG<=signum)
+	
+  cprintf("sigsend pid = %d, signum = %d\n", pid, signum);
+
+  if(signum<0 || NUMSIG<=signum)
 		return -1;
 	acquire(&ptable.lock);
 	struct proc* p;
@@ -722,9 +724,10 @@ sigsend(int pid, int signum){
 			if(p->state == UNUSED || p->state == ZOMBIE || p->state == EMBRYO)
 				return -1;
 			TURN_ON(p,signum);
-       }     
+    }     
 	}
 	release(&ptable.lock);
+  
 	if(found)
 		return 0;
 	return -1;
@@ -733,6 +736,7 @@ sigsend(int pid, int signum){
 //3.4
 int
 sigreturn(void){
+  cprintf("sigreturn\n");
 	acquire(&ptable.lock);
 	if(proc->tfbackup==0){
 		release(&ptable.lock);

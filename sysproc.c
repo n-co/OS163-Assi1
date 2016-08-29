@@ -147,5 +147,6 @@ sys_sigsend(void){
 //3.4
 int
 sys_sigreturn(void){
+  cprintf("sys_sigreturn\n");
   return sigreturn();
 }

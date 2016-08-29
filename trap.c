@@ -121,28 +121,37 @@ int get_tick(void){
 }
 
 void apply_sig_handler(struct trapframe *tf){    
-	if(proc == 0)  //scheduler
+  if(proc == 0)  //scheduler
 		return;
 	if(proc->pending == 0) // no signals
 		return;
-	int i;
-  	for(i=0; i<NUMSIG; i++){
-    	if(IS_SIG_ON(proc,i)){
-    		//backup the trapframe
-			memmove(proc->tfbackup,&tf,sizeof(struct trapframe));
-			TURN_OFF(proc,i);
-	    	tf->eip = (uint)(proc->sig_table[i]);
-	  		int length = (int)(&inject_sigreturn_end) - (int)(&inject_sigreturn_start);
-	  		tf->esp = (tf->esp - length);
-	  		uint ret_address = tf->esp;
-	  		copyout(proc->pgdir, tf->esp, &inject_sigreturn_start, length);      	
+	
+  cprintf("apply_sig_handler: proc->pid = %d\n", proc->pid);  //debug print
+  cprintf("   tf==proc->tf?   %d\n", proc->tf==tf);           //debug print
 
-	      	tf->esp -= 4;
-	      	*((uint*)tf->esp) = i;
-	      	tf->esp -= 4;
-	      	*((uint*)tf->esp) = ret_address;
 
-	      	break;
+  int i;
+	for(i=0; i<NUMSIG; i++){
+  	if(IS_SIG_ON(proc,i)){
+    	//backup the trapframe
+      uint sp = proc->tf->esp;
+  		memmove(proc->tfbackup,&tf,sizeof(struct trapframe));
+  		TURN_OFF(proc,i);
+    	tf->eip = (uint)(proc->sig_table[i]);
+  		int length = (int)(&inject_sigreturn_end) - (int)(&inject_sigreturn_start);
+
+  		sp -= length;
+  		uint ret_address = sp;
+  		copyout(proc->pgdir, sp, &inject_sigreturn_start, length);      	
+
+    	sp -= 4;
+    	*((uint*)sp) = i;
+    	sp -= 4;
+    	*((uint*)sp) = ret_address;
+
+      proc->tf->esp = sp;
+    	break;
     }
   }
+  cprintf("apply_sig_handler - end\n");  //debug print
 }
