@@ -29,7 +29,7 @@ trapret:
 
   # 3.4 Call c func that handle the signal
   pushl %esp
-  call apply_sig_handler
+  call do_signal
   addl $4, %esp
 
   popal

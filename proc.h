@@ -1,3 +1,4 @@
+#include "x86.h"
 // Segments in proc->gdt.
 #define NSEGS     7
 #define NUMSIG    32
@@ -61,7 +62,8 @@ struct proc {
   int pid;                     // Process ID
   struct proc *parent;         // Parent process
   struct trapframe *tf;        // Trap frame for current syscall
-  struct trapframe *tfbackup;  // Trap frame backup 3.4
+  int insignal;                // 3.4
+  struct trapframe btf;        // Trap frame backup 3.4
   struct context *context;     // swtch() here to run process
   void *chan;                  // If non-zero, sleeping on chan
   int killed;                  // If non-zero, have been killed
@@ -78,6 +80,7 @@ struct proc {
   int rutime;                 // the time the process spent ont the RUNNING state
   uint pending;
   sighandler_t sig_table[NUMSIG];   //sighandler_t is a pointer to a function that recieve an integr and return void
+  void *sigret;               // 3.4
 };
 
 // Process memory is laid out contiguously, low addresses first:

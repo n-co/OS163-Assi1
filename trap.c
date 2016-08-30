@@ -16,9 +16,7 @@ struct spinlock tickslock;
 uint ticks;
 
 extern void inc_ticks(void);
-//3.4
-extern void* inject_sigreturn_start;
-extern void* inject_sigreturn_end;
+
 void
 tvinit(void)
 {
@@ -120,38 +118,42 @@ int get_tick(void){
   return (int)ticks; 
 }
 
-void apply_sig_handler(struct trapframe *tf){    
-  if(proc == 0)  //scheduler
-		return;
-	if(proc->pending == 0) // no signals
-		return;
-	
-  cprintf("apply_sig_handler: proc->pid = %d\n", proc->pid);  //debug print
-  cprintf("   tf==proc->tf?   %d\n", proc->tf==tf);           //debug print
+void do_signal(struct trapframe *tf){
 
+  if(((tf->cs)&3) != DPL_USER)  //not user process
+    return;
+  if(proc == 0)                 //scheduler
+		return;
+	if(proc->pending == 0)        // no signals
+    return;
+  if(proc->insignal)            // allready handeling signal
+    return;
+	 
+  //cprintf("do_signal: proc->pid = %d\n", proc->pid);  //debug print
+  //cprintf("handler[0] address: %x\n", (proc->sig_table[0]));     //debug print
 
   int i;
 	for(i=0; i<NUMSIG; i++){
   	if(IS_SIG_ON(proc,i)){
     	//backup the trapframe
-      uint sp = proc->tf->esp;
-  		memmove(proc->tfbackup,&tf,sizeof(struct trapframe));
+  		proc->btf = *tf;
+
+      proc->insignal=1;
   		TURN_OFF(proc,i);
-    	tf->eip = (uint)(proc->sig_table[i]);
-  		int length = (int)(&inject_sigreturn_end) - (int)(&inject_sigreturn_start);
 
-  		sp -= length;
-  		uint ret_address = sp;
-  		copyout(proc->pgdir, sp, &inject_sigreturn_start, length);      	
-
-    	sp -= 4;
-    	*((uint*)sp) = i;
-    	sp -= 4;
-    	*((uint*)sp) = ret_address;
-
-      proc->tf->esp = sp;
+      if(proc->sig_table[i] == (sighandler_t)SIG_DEF){
+          defSigHandler(i);
+          sigreturn();
+      }
+      else{
+      	tf->eip = (uint)(proc->sig_table[i]);
+      	tf->esp -= 4;
+      	*((uint*)tf->esp) = i;
+      	tf->esp -= 4;
+      	*((uint*)tf->esp) = (uint)(proc->sigret);
+      }
     	break;
     }
   }
-  cprintf("apply_sig_handler - end\n");  //debug print
+  //cprintf("do_signal: proc->pid = %d - end\n", proc->pid);  //debug print
 }

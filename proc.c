@@ -90,9 +90,9 @@ found:
   p->pending = 0;
   int i;
   for(i=0; i<NUMSIG; i++)
-    p->sig_table[i] = defSigHandler;
+    p->sig_table[i] = (sighandler_t)SIG_DEF;
 
-  p->tfbackup = 0;
+  p->insignal = 0;
   
   return p;
 }
@@ -711,7 +711,7 @@ signal(int signum, sighandler_t handler){
 int
 sigsend(int pid, int signum){
 	
-  cprintf("sigsend pid = %d, signum = %d\n", pid, signum);
+  //cprintf("sigsend pid = %d, signum = %d\n", pid, signum); //debug print 
 
   if(signum<0 || NUMSIG<=signum)
 		return -1;
@@ -736,14 +736,15 @@ sigsend(int pid, int signum){
 //3.4
 int
 sigreturn(void){
-  cprintf("sigreturn\n");
+  //cprintf("sigreturn\n"); //debug print
 	acquire(&ptable.lock);
-	if(proc->tfbackup==0){
+	if(proc->insignal==0){
 		release(&ptable.lock);
 		return -1;
 	}
 	// restore trapframe from backup
-	memmove(proc->tf,&(proc->tfbackup),sizeof(struct trapframe));
+	*(proc->tf) = proc->btf;
+  proc->insignal=0;
 	release(&ptable.lock);
 	return 0;
 }

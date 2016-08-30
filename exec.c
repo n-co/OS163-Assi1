@@ -11,6 +11,9 @@
 // 1.3
 extern void* inject_exit_start;
 extern void* inject_exit_end;
+//3.4
+extern void* inject_sigreturn_start;
+extern void* inject_sigreturn_end;
 
 int
 exec(char *path, char **argv)
@@ -68,10 +71,19 @@ exec(char *path, char **argv)
 
   // 1.3
   int length = (int)(&inject_exit_end) - (int)(&inject_exit_start);
-  sp = (sp - length);
+  sp -= length;
   int ret_address = sp;
   if(copyout(pgdir, sp, &inject_exit_start, length) < 0)
     goto bad;
+
+  //3.4
+  length = (int)(&inject_sigreturn_end) - (int)(&inject_sigreturn_start);
+  sp -= length;
+  int sigret = sp;
+  if(copyout(pgdir, sp, &inject_sigreturn_start, length) < 0)
+    goto bad;
+
+  //3.4
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -105,6 +117,9 @@ exec(char *path, char **argv)
   proc->sz = sz;
   proc->tf->eip = elf.entry;  // main
   proc->tf->esp = sp;
+
+  proc->sigret = (void*)sigret; // 3.4
+
   switchuvm(proc);
   freevm(oldpgdir);
   return 0;
