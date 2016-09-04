@@ -9,4 +9,6 @@
 			pushl %eax
 			movl $SYS_sigreturn, %eax
 			int $T_SYSCALL
+			ret
 	inject_sigreturn_end:
+			

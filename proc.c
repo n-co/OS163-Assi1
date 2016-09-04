@@ -57,6 +57,18 @@ allocproc(void)
 
 found:
   p->state = EMBRYO;
+  // 2.1
+  // initiallize ntickets according to policy
+  switch(policy){
+  case POL_UNIFORM:   p->ntickets = 1;
+                      break;
+  case POL_PRIORITY:  p->priority = 10;
+                      p->ntickets = p->priority;
+                      break;
+  case POL_DYNAMIC:   p->ntickets = 20;
+                      break;
+  }  
+
   p->pid = nextpid++;
   release(&ptable.lock);
 
@@ -80,6 +92,7 @@ found:
   p->context = (struct context*)sp;
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
+  p->insignal = 0;
   p->priority = 10; // 2.1
   p->ctime = get_tick();
   p->stime = 0;
@@ -92,7 +105,6 @@ found:
   for(i=0; i<NUMSIG; i++)
     p->sig_table[i] = (sighandler_t)SIG_DEF;
 
-  p->insignal = 0;
   
   return p;
 }
@@ -122,7 +134,6 @@ userinit(void)
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
-
   p->state = RUNNABLE;
 }
 
@@ -169,6 +180,7 @@ fork(void)
   np->sz = proc->sz;
   np->parent = proc;
   *np->tf = *proc->tf;
+  np->sigret=proc->sigret;
 
   for(i=0; i<NUMSIG; i++)		// copy sig_table from parent to child
   	np->sig_table[i] = proc->sig_table[i];
@@ -187,7 +199,6 @@ fork(void)
 
   // lock to force the compiler to emit the np->state write last.
   acquire(&ptable.lock);
-  update_total_tickets(np, np->state, RUNNABLE);
   np->state = RUNNABLE;
   release(&ptable.lock);
   
@@ -234,9 +245,9 @@ exit(int status)
   }
 
   // Jump into the scheduler, never to return.
-  update_total_tickets(proc, proc->state, ZOMBIE);
   proc-> ttime = get_tick();
   proc->state = ZOMBIE;
+
   proc->exit_status = status; //@
   sched();
   panic("zombie exit");
@@ -269,9 +280,9 @@ wait(int *status)
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
-        release(&ptable.lock);
-        if(status != 0)             //@ change to NULL ?
+        if(status != 0)             //@
           *status = p->exit_status; //@
+        release(&ptable.lock);
         return pid;
       }
     }
@@ -332,9 +343,10 @@ scheduler(void)
     sti();
   
     acquire(&ptable.lock);
-
     ticket = rand(total_tickets);
     int tCounter = 0;
+
+
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state!=RUNNABLE)
         continue;
@@ -344,7 +356,6 @@ scheduler(void)
         // before jumping back to us.
         proc = p;
         switchuvm(p);
-        update_total_tickets(p, p->state, RUNNING);
         p->state = RUNNING;
         swtch(&cpu->scheduler, proc->context);
         switchkvm();
@@ -387,7 +398,9 @@ yield(void)
 {
   acquire(&ptable.lock);  //DOC: yieldlock
   update_total_tickets(proc, proc->state, RUNNABLE);
+
   proc->state = RUNNABLE;
+
   sched();
   release(&ptable.lock);
 }
@@ -437,7 +450,6 @@ sleep(void *chan, struct spinlock *lk)
 
   // Go to sleep.
   proc->chan = chan;
-  update_total_tickets(proc, proc->state, SLEEPING);
   proc->state = SLEEPING;
   sched();
 
@@ -463,6 +475,7 @@ wakeup1(void *chan)
     if(p->state == SLEEPING && p->chan == chan){
       update_total_tickets(p, SLEEPING,RUNNABLE);
       p->state = RUNNABLE;
+
     }
 }
 
@@ -489,7 +502,6 @@ kill(int pid)
       p->killed = 1;
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING){
-        update_total_tickets(p, SLEEPING,RUNNABLE);
         p->state = RUNNABLE;
       }
       release(&ptable.lock);
@@ -547,6 +559,7 @@ int
       if(p->state == RUNNABLE)
         total += p->ntickets;
   }
+  total_tickets=total;
   return total;
  }
 
@@ -559,7 +572,9 @@ int
       if(p->state == RUNNABLE)
         total += p->ntickets;
   }
-  return total; }
+  total_tickets=total;
+  return total;
+}
 
  int
  pol_dynamic(){
@@ -570,8 +585,9 @@ int
       if(p->state == RUNNABLE)
         total += p->ntickets;
   }
+  total_tickets=total;
   return total;
- }
+}
 
 void
 update_total_tickets(struct proc *p, enum procstate old_state,enum procstate new_state){
@@ -583,28 +599,11 @@ update_total_tickets(struct proc *p, enum procstate old_state,enum procstate new
         p->ntickets+=10;
         if(p->ntickets>100)
           p->ntickets=100;
-        //cprintf("dynamic ntickets sleeping: %d\n",p->ntickets);
       }
       if(old_state == RUNNING && new_state == RUNNABLE){
         if(p->ntickets>1)
           p->ntickets--;
-        //cprintf("dynamic ntickets becomes runnable: %d\n",p->ntickets);
       }
-    }
-
-    // apply ntickets to a new process according to policy
-    if(old_state == EMBRYO){
-      switch(policy){
-      case POL_UNIFORM:   p->ntickets = 1;
-                          break;
-      case POL_PRIORITY:  p->priority = 10;
-                          p->ntickets = p->priority;
-                          break;
-      case POL_DYNAMIC:   p->ntickets = 20;
-                          break;
-      }
-
-      //cprintf("embryo ntickets: %d\n",p->ntickets);
     }
 
     // change total_tickets (for every kind of policy)
@@ -663,10 +662,10 @@ wait_stat(int *status, struct perf *perf){
         perf->stime  = p->stime; 
         perf->retime = p->retime;
         perf->rutime = p->rutime;
-        release(&ptable.lock);
-        if(status != 0)             //@ change to NULL ?
+        if(status != 0)             //@
           *status = p->exit_status; //@
-        return pid;
+       release(&ptable.lock);
+       return pid;
       }
     }
 
@@ -702,8 +701,10 @@ sighandler_t
 signal(int signum, sighandler_t handler){
   if(signum<0 || NUMSIG<=signum)
     return (sighandler_t)-1;
+  acquire(&ptable.lock);
   sighandler_t ret = proc->sig_table[signum];
   proc->sig_table[signum] = handler;
+  release(&ptable.lock);
   return ret;
 }
 
@@ -711,40 +712,41 @@ signal(int signum, sighandler_t handler){
 int
 sigsend(int pid, int signum){
 	
-  //cprintf("sigsend pid = %d, signum = %d\n", pid, signum); //debug print 
-
   if(signum<0 || NUMSIG<=signum)
 		return -1;
 	acquire(&ptable.lock);
 	struct proc* p;
 	int found = 0;
 	for(p = ptable.proc; !found && p < &ptable.proc[NPROC]; p++){
+
 		if (pid == p->pid){
 			found = 1;
 			if(p->state == UNUSED || p->state == ZOMBIE || p->state == EMBRYO)
 				return -1;
 			TURN_ON(p,signum);
-    }     
+    } 
+
 	}
 	release(&ptable.lock);
   
 	if(found)
 		return 0;
 	return -1;
+
 }
 
 //3.4
 int
 sigreturn(void){
-  //cprintf("sigreturn\n"); //debug print
 	acquire(&ptable.lock);
 	if(proc->insignal==0){
 		release(&ptable.lock);
 		return -1;
 	}
 	// restore trapframe from backup
-	*(proc->tf) = proc->btf;
+  *proc->tf = proc->btf;
   proc->insignal=0;
 	release(&ptable.lock);
-	return 0;
+  return proc->btf.eax;
+	//return 0; was changed to eax to keep the return value after context switch
 }

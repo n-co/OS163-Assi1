@@ -73,18 +73,17 @@ exec(char *path, char **argv)
   int length = (int)(&inject_exit_end) - (int)(&inject_exit_start);
   sp -= length;
   int ret_address = sp;
-  if(copyout(pgdir, sp, &inject_exit_start, length) < 0)
+  if(copyout(pgdir, ret_address, &inject_exit_start, length) < 0)
     goto bad;
 
   //3.4
   length = (int)(&inject_sigreturn_end) - (int)(&inject_sigreturn_start);
   sp -= length;
   int sigret = sp;
-  if(copyout(pgdir, sp, &inject_sigreturn_start, length) < 0)
+  if(copyout(pgdir, sigret, &inject_sigreturn_start, length) < 0)
     goto bad;
 
   //3.4
-
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)

@@ -82,7 +82,7 @@ trap(struct trapframe *tf)
     lapiceoi();
     break;
    
-  //PAGEBREAK: 13
+  //PAGEBREAK: 13 
   default:
     if(proc == 0 || (tf->cs&3) == 0){
       // In kernel, it must be our mistake.
@@ -128,24 +128,23 @@ void do_signal(struct trapframe *tf){
     return;
   if(proc->insignal)            // allready handeling signal
     return;
+  if (proc->tf != tf)
+    panic("do_signal: wrong tf");
 	 
-  //cprintf("do_signal: proc->pid = %d\n", proc->pid);  //debug print
-  //cprintf("handler[0] address: %x\n", (proc->sig_table[0]));     //debug print
+  proc->insignal=1;     
 
   int i;
 	for(i=0; i<NUMSIG; i++){
   	if(IS_SIG_ON(proc,i)){
     	//backup the trapframe
-  		proc->btf = *tf;
-
-      proc->insignal=1;
-  		TURN_OFF(proc,i);
+      TURN_OFF(proc,i);
+      proc->btf = *tf;
 
       if(proc->sig_table[i] == (sighandler_t)SIG_DEF){
           defSigHandler(i);
           sigreturn();
       }
-      else{
+      else {
       	tf->eip = (uint)(proc->sig_table[i]);
       	tf->esp -= 4;
       	*((uint*)tf->esp) = i;
@@ -155,5 +154,4 @@ void do_signal(struct trapframe *tf){
     	break;
     }
   }
-  //cprintf("do_signal: proc->pid = %d - end\n", proc->pid);  //debug print
 }
