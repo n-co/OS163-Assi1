@@ -37,8 +37,6 @@ void mixed(void){
         counter++;
         prev = tick;
       }
-      else
-        printf(1, "NOT CHANGED \n");
     }
     sleep(1);
   }
